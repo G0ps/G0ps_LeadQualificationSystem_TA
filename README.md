@@ -104,6 +104,27 @@ This application is optimized and ready for zero-downtime hosting on **Render**:
 
 ---
 
+## 🧪 Local API Testing (Windows PowerShell)
+
+When testing the analysis pipeline locally in a Windows environment, standard `curl` commands can cause JSON parsing exceptions due to quote escaping issues. 
+
+Use the following native **PowerShell** snippet to send a properly formatted test payload to your local Express server:
+
+```powershell
+# 1. Define the test payload object and convert it to valid JSON
+$body = @{
+     memberInfo = @{
+         name  = "John Doe"
+         email = "john@techcorp.com"
+         title = "Senior Software Engineer at TechCorp"
+     }
+} | ConvertTo-Json
+
+# 2. Trigger the test analysis endpoint
+Invoke-RestMethod -Uri "http://localhost:3000/test/analyze-member" -Method Post -ContentType "application/json" -Body $body
+
+---
+
 ## ❤️ Credits & Appreciation
 
 A heartfelt thank you goes out to **freeCodeCamp** and the co-creator **Ania Kubów** for producing the fantastic educational guide that inspired the framework for this automation pipeline.

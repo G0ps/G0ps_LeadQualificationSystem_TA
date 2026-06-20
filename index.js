@@ -221,6 +221,7 @@ class SlackAIAgent {
         const prompt = ChatPromptTemplate.fromTemplate(
             `
             Analyze this new community member for fit with our commercial product.
+            NOTE : No markdowns in the response such as bold texts and any other textual adjustments.
 
             company : {company}
             Product : {product}
