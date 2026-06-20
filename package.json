@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@langchain/core": "^1.2.0",
+    "@langchain/google-genai": "^2.2.0",
     "@langchain/openai": "^1.5.1",
     "@slack/bolt": "^4.7.3",
     "@slack/web-api": "^7.17.0",

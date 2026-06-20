@@ -2,6 +2,7 @@ import pkg from '@slack/bolt';
 const { App } = pkg;
 import { WebClient } from '@slack/web-api';
 import { ChatOpenAI } from '@langchain/openai';
+import { ChatGoogleGenerativeAI } from '@langchain/google-genai'; // Added Gemini import
 import { ChatPromptTemplate } from '@langchain/core/prompts';
 
 import express from 'express';
@@ -30,10 +31,19 @@ class SlackAIAgent {
         });
 
         this.WebClient = new WebClient(process.env.SLACK_BOT_TOKEN);
+        
+        // Primary LLM
         this.openai = new ChatOpenAI({
-            model: "gpt-5.4",
+            model: "gpt-4o", // Changed from placeholder gpt-5.4 to actual model name
             temperature: 0.3,
             apiKey: process.env.OPENAI_API_KEY
+        });
+
+        // Fallback LLM (Gemini)
+        this.gemini = new ChatGoogleGenerativeAI({
+            model: "gemini-2.5-flash",
+            temperature: 0.3,
+            apiKey: process.env.GOOGLE_API_KEY
         });
 
         this.setupSlackEvents();
@@ -121,7 +131,6 @@ class SlackAIAgent {
             const analysis = await this.analyzeWithAI(memberInfo, researchData);
             
             log.info(`Saving analysis to DB for ${memberInfo.name}`);
-            // Note: aligned with your db.js import named 'savememberAnalysis'
             analysisId = await savememberAnalysis(memberInfo, analysis, researchData);
 
             await this.postAnalysisToChannel(memberInfo, analysis, researchData);
@@ -233,21 +242,44 @@ class SlackAIAgent {
             `
         );
 
+        const researchSummary = researchData.length > 0 
+            ? researchData.map(r => `${r.title}: ${r.content}`).join('\n') 
+            : "Limited research data available";
+
+        const inputPayload = {
+            company: process.env.COMPANY_NAME || 'YOUR COMPANY',
+            product: process.env.COMPANY_PRODUCT || 'YOUR PRODUCT',
+            name: memberInfo.name,
+            email: memberInfo.email || "not provided",
+            title: memberInfo.title || "Not provided",
+            research: researchSummary
+        };
+
+        let result;
+
         try {
-            const researchSummary = researchData.length > 0 
-                ? researchData.map(r => `${r.title}: ${r.content}`).join('\n') 
-                : "Limited research data available";
-
+            // Attempt with OpenAI primary
+            log.info("Attempting analysis with OpenAI...");
             const chain = prompt.pipe(this.openai);
-            const result = await chain.invoke({
-                company: process.env.COMPANY_NAME || 'YOUR COMPANY',
-                product: process.env.COMPANY_PRODUCT || 'YOUR PRODUCT',
-                name: memberInfo.name,
-                email: memberInfo.email || "not provided",
-                title: memberInfo.title || "Not provided",
-                research: researchSummary
-            });
+            result = await chain.invoke(inputPayload);
+        } catch (openAiError) {
+            log.error(`OpenAI error: ${openAiError.message}. Triggering Google Gemini fallback...`);
+            try {
+                // Fallback to Gemini
+                const fallbackChain = prompt.pipe(this.gemini);
+                result = await fallbackChain.invoke(inputPayload);
+            } catch (geminiError) {
+                log.error(`Gemini fallback also failed: `, geminiError.message);
+                // Return a graceful backup object if all LLMs fail
+                return {
+                    fitScore: 50,
+                    insights: ["Unable to complete automated analysis due to AI network error."],
+                    recommendations: ["Manual review recommended"]
+                };
+            }
+        }
 
+        try {
             const responseText = result.content || result;
             const cleanedResponse = responseText.replace(/```json\n?|```/g, '').trim();
             const analysis = JSON.parse(cleanedResponse);
@@ -257,12 +289,11 @@ class SlackAIAgent {
                 insights: Array.isArray(analysis.insights) ? analysis.insights : ["Analysis completed"],
                 recommendations: Array.isArray(analysis.recommendations) ? analysis.recommendations : ["Follow up recommended"]
             };
-
-        } catch (error) {
-            log.error(`AI analysis error: `, error.message);
+        } catch (parseError) {
+            log.error(`JSON Parse error on AI response: `, parseError.message);
             return {
                 fitScore: 50,
-                insights: ["Unable to complete full analysis"],
+                insights: ["Failed to format AI payload output correctly."],
                 recommendations: ["Manual review recommended"]
             };
         }
